@@ -1,0 +1,50 @@
+@import "tailwindcss";
+
+@theme inline {
+  --color-evergreen: #123b2f;
+  --color-pine: #1f5c47;
+  --color-cream: #fbf7ee;
+  --color-page: #f3ede0;
+  --color-cranberry: #a8201a;
+  --color-cranberry-dark: #7e1712;
+  --color-gold: #e9d9a6;
+  --color-ink: #1e2a24;
+  --color-muted: #5a5347;
+  --color-line: #e2d9c6;
+  --color-line-soft: #ece4d3;
+  --color-field: #cfc5b0;
+  --color-mint: #e6efe9;
+  --color-sage: #c9d8d0;
+  --font-display: var(--font-fraunces), Georgia, serif;
+  --font-sans: var(--font-inter), system-ui, sans-serif;
+  --font-mono: ui-monospace, SFMono-Regular, Menlo, monospace;
+}
+
+html {
+  background: var(--color-page);
+}
+
+body {
+  background: var(--color-page);
+  color: var(--color-ink);
+  font-family: var(--font-sans);
+}
+
+.candy-stripe {
+  height: 8px;
+  background: repeating-linear-gradient(135deg, #a8201a 0 14px, #fbf7ee 14px 28px);
+}
+
+input::placeholder,
+textarea::placeholder {
+  color: #857d6e;
+}
+
+:focus-visible {
+  outline: 3px solid #a8201a;
+  outline-offset: 2px;
+}
+
+dialog::backdrop {
+  background: rgb(18 59 47 / 0.6);
+}
