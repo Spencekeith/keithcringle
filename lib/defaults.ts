@@ -61,6 +61,7 @@ export function defaultConfig(): Config {
       },
     ],
     rules: { ownKids: true, noRepeat: true, grandparentsSkipKids: false },
+    pins: { adults: {}, kids: {} },
     budgets: { adult: "", kid: "" },
     exchangeDate: "",
   };

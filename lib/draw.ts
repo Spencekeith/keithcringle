@@ -73,23 +73,50 @@ export function drawAdults(
 
   const last = config.rules.noRepeat ? lastAdultMatches(history) : new Map<string, string>();
   const baseOk = (i: number, j: number) => i !== j && adults[i].householdId !== adults[j].householdId;
-  const ok = (i: number, j: number) => baseOk(i, j) && last.get(adults[i].id) !== adults[j].id;
+
+  // Fixed matches: giver index -> recipient index. A pin overrides no-repeat, never self/spouse.
+  const index = new Map(adults.map((a, i) => [a.id, i]));
+  const pins = new Map<number, number>();
+  const pinnedBy = new Map<number, number>();
+  for (const [giverId, recipientId] of Object.entries(config.pins?.adults ?? {})) {
+    const i = index.get(giverId);
+    const j = index.get(recipientId);
+    if (i === undefined || j === undefined) continue; // stale pin for someone who was removed
+    if (!baseOk(i, j)) {
+      throw new DrawError(`Fixed match: ${adults[i].name} can't give to ${adults[j].name}, because of the spouse rule.`);
+    }
+    if (pinnedBy.has(j)) {
+      throw new DrawError(
+        `Fixed matches: ${adults[pinnedBy.get(j)!].name} and ${adults[i].name} are both set to give to ${adults[j].name}.`,
+      );
+    }
+    pins.set(i, j);
+    pinnedBy.set(j, i);
+  }
+
+  const freeOk = (i: number, j: number) => baseOk(i, j) && !pinnedBy.has(j);
+  const ok = (i: number, j: number) =>
+    pins.has(i) ? pins.get(i) === j : freeOk(i, j) && last.get(adults[i].id) !== adults[j].id;
 
   // Anyone with zero options? Name them and the rule that boxed them in.
   for (let i = 0; i < n; i++) {
-    const options = adults.filter((_, j) => ok(i, j)).length;
-    if (options === 0) {
-      const baseOptions = adults.filter((_, j) => baseOk(i, j)).length;
-      const why = baseOptions > 0 ? "the no-repeat rule plus the spouse rule" : "the spouse rule";
-      throw new DrawError(`No valid draw: ${why} leaves ${adults[i].name} no options.`);
-    }
+    if (adults.some((_, j) => ok(i, j))) continue;
+    const why = !adults.some((_, j) => baseOk(i, j))
+      ? "the spouse rule"
+      : !adults.some((_, j) => freeOk(i, j))
+        ? "the fixed matches plus the spouse rule"
+        : "the no-repeat rule plus the spouse rule";
+    throw new DrawError(`No valid draw: ${why} leaves ${adults[i].name} no options.`);
   }
   // Anyone nobody can draw?
   for (let j = 0; j < n; j++) {
-    if (!adults.some((_, i) => ok(i, j))) {
-      const why = adults.some((_, i) => baseOk(i, j)) ? "the no-repeat rule plus the spouse rule" : "the spouse rule";
-      throw new DrawError(`No valid draw: ${why} means nobody can draw ${adults[j].name}.`);
-    }
+    if (adults.some((_, i) => ok(i, j))) continue;
+    const why = !adults.some((_, i) => baseOk(i, j))
+      ? "the spouse rule"
+      : !adults.some((_, i) => !pins.has(i) && baseOk(i, j))
+        ? "the fixed matches plus the spouse rule"
+        : "the no-repeat rule plus the spouse rule";
+    throw new DrawError(`No valid draw: ${why} means nobody can draw ${adults[j].name}.`);
   }
 
   const idx = adults.map((_, i) => i);
@@ -102,11 +129,17 @@ export function drawAdults(
   // Very tight constraints: fall back to randomized backtracking, which also proves impossibility.
   const perm = backtrackPermutation(n, ok, rng);
   if (perm) return toMap(adults, perm);
-  const withoutNoRepeat = config.rules.noRepeat && backtrackPermutation(n, baseOk, rng);
+  const pinOk = (i: number, j: number) => (pins.has(i) ? pins.get(i) === j : freeOk(i, j));
+  if (config.rules.noRepeat && backtrackPermutation(n, pinOk, rng)) {
+    throw new DrawError(
+      "No valid draw: the no-repeat rule plus the spouse rule leaves no way to pair everyone up. Try turning off no-repeat.",
+    );
+  }
+  if (pins.size > 0 && backtrackPermutation(n, baseOk, rng)) {
+    throw new DrawError("No valid draw: the fixed matches leave no way to pair everyone else up. Try removing one.");
+  }
   throw new DrawError(
-    withoutNoRepeat
-      ? "No valid draw: the no-repeat rule plus the spouse rule leaves no way to pair everyone up. Try turning off no-repeat."
-      : "No valid draw: the spouse rule leaves no way to pair everyone up. One household has more than half the adults.",
+    "No valid draw: the spouse rule leaves no way to pair everyone up. One household has more than half the adults.",
   );
 }
 
@@ -162,16 +195,38 @@ export function drawKids(
 
   const last = config.rules.noRepeat ? lastKidMatches(config, history) : new Map<string, Set<string>>();
   const ownOk = (g: Household, k: KidEntry) => !(config.rules.ownKids && k.householdId === g.id);
-  const ok = (g: Household, k: KidEntry) => ownOk(g, k) && !last.get(g.id)?.has(k.id);
+
+  // Fixed matches: kidId -> householdId. A pin overrides no-repeat, never the own-kids rule.
+  const kidPins = new Map<string, string>();
+  for (const [householdId, kidId] of Object.entries(config.pins?.kids ?? {})) {
+    const h = config.households.find((x) => x.id === householdId);
+    const kid = config.households.flatMap((x) => x.kids.map((k) => ({ ...k, householdId: x.id }))).find((k) => k.id === kidId);
+    if (!h || !kid) continue; // stale pin
+    if (kid.optedOut) throw new DrawError(`Fixed match: ${kid.name} is sitting out this year, so ${h.name} can't cover them.`);
+    if (!givers.some((g) => g.id === h.id)) throw new DrawError(`Fixed match: ${h.name} is sitting out the kid draw.`);
+    if (!ownOk(h, kid)) throw new DrawError(`Fixed match: ${h.name} can't cover their own kid, ${kid.name}.`);
+    const other = kidPins.get(kid.id);
+    if (other) {
+      const otherName = config.households.find((x) => x.id === other)?.name ?? "Another household";
+      throw new DrawError(`Fixed matches: ${otherName} and ${h.name} are both set to cover ${kid.name}.`);
+    }
+    kidPins.set(kid.id, h.id);
+  }
+
+  const freeOk = (g: Household, k: KidEntry) => (kidPins.has(k.id) ? kidPins.get(k.id) === g.id : ownOk(g, k));
+  const ok = (g: Household, k: KidEntry) => (kidPins.has(k.id) ? kidPins.get(k.id) === g.id : ownOk(g, k) && !last.get(g.id)?.has(k.id));
   const plan = kidPlan(kids.length, givers.length);
 
   // A giver that must take a kid but has none it's allowed to take.
   if (plan.floor >= 1) {
     for (const g of givers) {
-      if (!kids.some((k) => ok(g, k))) {
-        const why = kids.some((k) => ownOk(g, k)) ? "the no-repeat rule" : "the own-kids rule";
-        throw new DrawError(`No valid draw: ${why} leaves ${g.name} no eligible kid.`);
-      }
+      if (kids.some((k) => ok(g, k))) continue;
+      const why = !kids.some((k) => ownOk(g, k))
+        ? "the own-kids rule"
+        : !kids.some((k) => freeOk(g, k))
+          ? "the fixed matches"
+          : "the no-repeat rule";
+      throw new DrawError(`No valid draw: ${why} leaves ${g.name} no eligible kid.`);
     }
   }
   for (const k of kids) {
@@ -197,12 +252,15 @@ export function drawKids(
 
   const found = backtrackKids(givers, kids, plan, ok, rng);
   if (found) return found;
-  const withoutNoRepeat = config.rules.noRepeat && backtrackKids(givers, kids, plan, ownOk, rng);
-  throw new DrawError(
-    withoutNoRepeat
-      ? "No valid draw: the no-repeat rule plus the own-kids rule leaves no way to share out the kids. Try turning off no-repeat."
-      : "No valid draw: the own-kids rule leaves no way to share out the kids evenly.",
-  );
+  if (config.rules.noRepeat && backtrackKids(givers, kids, plan, freeOk, rng)) {
+    throw new DrawError(
+      "No valid draw: the no-repeat rule plus the own-kids rule leaves no way to share out the kids. Try turning off no-repeat.",
+    );
+  }
+  if (kidPins.size > 0 && backtrackKids(givers, kids, plan, ownOk, rng)) {
+    throw new DrawError("No valid draw: the fixed kid matches leave no way to share out the other kids evenly. Try removing one.");
+  }
+  throw new DrawError("No valid draw: the own-kids rule leaves no way to share out the kids evenly.");
 }
 
 function backtrackKids(

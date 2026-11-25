@@ -229,3 +229,78 @@ describe("ready check", () => {
     expect(readyCheck(config, null).message).toBe("4 kids and 5 couples, so 1 couple sits out the kid draw. Picked at random.");
   });
 });
+
+describe("fixed matches", () => {
+  const pinned = (adults: Record<string, string>, kids: Record<string, string> = {}): Config => ({
+    ...defaultConfig(),
+    pins: { adults, kids },
+  });
+
+  it("always gives Elena Sean, and AJ & Elena Ellie; everything else stays valid", () => {
+    const config = pinned({ elena: "sean" }, { "aj-elena": "ellie" });
+    const hh = householdOf(config);
+    const seenForAj = new Set<string>();
+    for (let r = 0; r < RUNS; r++) {
+      const rows = runDraw(config, null);
+      const by = new Map(rows.map((row) => [row.giverId, row]));
+      expect(by.get("elena")!.adultRecipientId).toBe("sean");
+      expect(by.get("elena")!.kidRecipientIds).toEqual(["ellie"]);
+      expect(by.get("aj")!.kidRecipientIds).toEqual(["ellie"]);
+      seenForAj.add(by.get("aj")!.adultRecipientId);
+      const recipients = rows.map((row) => row.adultRecipientId);
+      expect(new Set(recipients).size).toBe(10);
+      expect(recipients.filter((x) => x === "sean")).toHaveLength(1);
+      for (const row of rows) {
+        expect(hh.get(row.adultRecipientId)).not.toBe(hh.get(row.giverId));
+        if (row.giverId !== "elena" && row.giverId !== "aj") expect(row.kidRecipientIds).not.toContain("ellie");
+      }
+    }
+    // The rest is still random.
+    expect(seenForAj.size).toBeGreaterThan(3);
+  });
+
+  it("a pin overrides no-repeat", () => {
+    const history: Assignment[] = [{ giverId: "elena", adultRecipientId: "sean", kidRecipientIds: ["ellie"] }];
+    const rows = runDraw(pinned({ elena: "sean" }, { "aj-elena": "ellie" }), history);
+    const elena = rows.find((r) => r.giverId === "elena")!;
+    expect(elena.adultRecipientId).toBe("sean");
+    expect(elena.kidRecipientIds).toEqual(["ellie"]);
+  });
+
+  it("works when kids outnumber couples", () => {
+    const config = pinned({}, { "seth-elizabeth": "river" });
+    config.households[1].kids.find((k) => k.id === "river")!.optedOut = false;
+    for (let r = 0; r < 300; r++) {
+      const m = drawKids(config, null);
+      expect(m.get("seth-elizabeth")).toContain("river");
+      expect([...m.values()].map((k) => k.length).sort()).toEqual([1, 1, 1, 1, 2]);
+    }
+  });
+
+  it("rejects pins that break the spouse or own-kids rule, with a named error", () => {
+    expect(() => drawAdults(pinned({ elena: "aj" }), null)).toThrow(/Elena can't give to AJ/);
+    expect(() => drawKids(pinned({}, { "aj-elena": "mae" }), null)).toThrow(/AJ & Elena can't cover their own kid, Mae/);
+  });
+
+  it("rejects two people pinned to the same recipient", () => {
+    expect(() => drawAdults(pinned({ elena: "sean", seth: "sean" }), null)).toThrow(/Elena and Seth are both set to give to Sean/);
+    expect(() => drawKids(pinned({}, { "aj-elena": "ellie", "seth-elizabeth": "ellie" }), null)).toThrow(/both set to cover Ellie/);
+  });
+
+  it("rejects pinning a kid who's sitting out, or a household that sits out", () => {
+    expect(() => drawKids(pinned({}, { "seth-elizabeth": "river" }), null)).toThrow(/River is sitting out/);
+    const config = pinned({}, { "sean-lauren": "ellie" });
+    config.rules.grandparentsSkipKids = true;
+    expect(() => drawKids(config, null)).toThrow(/Sean & Lauren is sitting out the kid draw/);
+  });
+
+  it("ready check reports a pin conflict instead of throwing", () => {
+    const s = readyCheck(pinned({ elena: "sean", seth: "sean" }), null);
+    expect(s.level).toBe("error");
+    expect(s.message).toMatch(/both set to give to Sean/);
+  });
+
+  it("ignores stale pins for people who were removed", () => {
+    expect(() => runDraw(pinned({ ghost: "sean", elena: "nobody" }, { gone: "ellie" }), null)).not.toThrow();
+  });
+});

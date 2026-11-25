@@ -49,3 +49,4 @@ Vitest covers the draw logic (1,000-run checks for self/spouse, no-repeat, own k
 - **Admin auth:** an HMAC-signed, httpOnly, SameSite=Lax cookie (Secure in production). `proxy.ts` guards `/admin/*` and `/api/admin/*`, and every admin route checks again.
 - **Privacy:** private pages send `Cache-Control: no-store`, `Referrer-Policy: no-referrer` and `noindex`, and metadata is generic so link previews never show a name. Links are marked opened on the first tap of **Open your tag**, not on page load, so preview bots don't count.
 - Households and rules lock after the draw; the date and budgets stay editable.
+- **Fixed matches** (optional, on `/admin`): force a giver → adult or a household → kid. The rest is still random. A fixed match skips no-repeat but never the spouse or own-kids rule, and conflicts show up in the ready check.

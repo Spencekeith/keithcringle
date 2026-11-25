@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { readyCheck } from "@/lib/draw";
+import { kidGivers, readyCheck } from "@/lib/draw";
 import { randomId } from "@/lib/random";
 import type { Assignment, Config, Household } from "@/lib/types";
 import { AdminHeader, Modal, SignOut, Switch, card, input, primaryBtn, secondaryBtn } from "./ui";
@@ -171,6 +171,8 @@ export default function SetupClient() {
                 + Add a household
               </button>
             )}
+
+            <FixedMatches config={config} locked={drawn} update={update} />
 
             {year && <LastYear key={JSON.stringify(history)} year={year - 1} config={config} history={history} onSaved={setHistory} />}
           </section>
@@ -547,6 +549,89 @@ function LastYear({
           <button type="button" className={secondaryBtn} onClick={save}>Save {year} matches</button>
           <span className="text-sm text-muted" aria-live="polite">{status}</span>
         </div>
+      </div>
+    </details>
+  );
+}
+
+function FixedMatches({
+  config,
+  locked,
+  update,
+}: {
+  config: Config;
+  locked: boolean;
+  update: (fn: (c: Config) => void) => void;
+}) {
+  const pins = config.pins ?? { adults: {}, kids: {} };
+  const adults = config.households.flatMap((h) => h.adults.map((a) => ({ ...a, h })));
+  const kids = config.households.flatMap((h) => h.kids.filter((k) => !k.optedOut).map((k) => ({ ...k, h })));
+  const givers = kidGivers(config);
+  const count = Object.keys(pins.adults).length + Object.keys(pins.kids).length;
+  const takenAdults = new Map(Object.entries(pins.adults).map(([g, r]) => [r, g]));
+  const takenKids = new Map(Object.entries(pins.kids).map(([h, k]) => [k, h]));
+
+  const setPin = (kind: "adults" | "kids", key: string, value: string) =>
+    update((c) => {
+      c.pins ??= { adults: {}, kids: {} };
+      if (value) c.pins[kind][key] = value;
+      else delete c.pins[kind][key];
+    });
+
+  const select = `${input} pr-8`;
+  return (
+    <details className={`${card} p-5`} open={count > 0 ? true : undefined}>
+      <summary className="flex min-h-11 cursor-pointer list-none items-center justify-between gap-3">
+        <span className="font-display text-[22px] font-medium text-evergreen">Fixed matches</span>
+        <span className="text-sm text-muted">{count ? `${count} fixed` : "Optional"}</span>
+      </summary>
+      <div className="mt-3 flex flex-col gap-5">
+        <p className="text-sm leading-relaxed text-muted">
+          Force a match and the rest is still drawn at random. A fixed match skips the no-repeat rule, but never the
+          spouse or own-kids rule. You&apos;ll know these matches; everything else stays sealed.
+        </p>
+        <fieldset className="grid gap-3 sm:grid-cols-2" disabled={locked}>
+          <legend className="mb-2 text-sm font-medium">Who each adult buys for</legend>
+          {adults.map((a) => (
+            <div key={a.id} className="flex flex-col gap-1">
+              <label htmlFor={`pin-${a.id}`} className="text-sm">{a.name}</label>
+              <select id={`pin-${a.id}`} className={select} value={pins.adults[a.id] ?? ""}
+                onChange={(e) => setPin("adults", a.id, e.target.value)}>
+                <option value="">Random</option>
+                {adults.filter((o) => o.h.id !== a.h.id).map((o) => {
+                  const by = takenAdults.get(o.id);
+                  return (
+                    <option key={o.id} value={o.id} disabled={!!by && by !== a.id}>
+                      {o.name}{by && by !== a.id ? " (taken)" : ""}
+                    </option>
+                  );
+                })}
+              </select>
+            </div>
+          ))}
+        </fieldset>
+        {kids.length > 0 && givers.length > 0 && (
+          <fieldset className="grid gap-3 sm:grid-cols-2" disabled={locked}>
+            <legend className="mb-2 text-sm font-medium">Which kid each couple covers</legend>
+            {givers.map((h) => (
+              <div key={h.id} className="flex flex-col gap-1">
+                <label htmlFor={`pink-${h.id}`} className="text-sm">{h.name}</label>
+                <select id={`pink-${h.id}`} className={select} value={pins.kids[h.id] ?? ""}
+                  onChange={(e) => setPin("kids", h.id, e.target.value)}>
+                  <option value="">Random</option>
+                  {kids.filter((k) => !(config.rules.ownKids && k.h.id === h.id)).map((k) => {
+                    const by = takenKids.get(k.id);
+                    return (
+                      <option key={k.id} value={k.id} disabled={!!by && by !== h.id}>
+                        {k.name}{by && by !== h.id ? " (taken)" : ""}
+                      </option>
+                    );
+                  })}
+                </select>
+              </div>
+            ))}
+          </fieldset>
+        )}
       </div>
     </details>
   );

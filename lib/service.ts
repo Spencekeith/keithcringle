@@ -88,8 +88,23 @@ export function sanitizeConfig(input: unknown): Config {
   if (households.filter((h) => h.isGrandparents).length > 1) throw bad("Only one household can be the grandparents.");
   const r = (c.rules ?? {}) as Record<string, unknown>;
   const b = (c.budgets ?? {}) as Record<string, unknown>;
+  // Keep only pins that point at people who still exist.
+  const adultIds = new Set(households.flatMap((h) => h.adults.map((a) => a.id)));
+  const kidIds = new Set(households.flatMap((h) => h.kids.map((k) => k.id)));
+  const householdIds = new Set(households.map((h) => h.id));
+  const pinsIn = (c.pins ?? {}) as Record<string, unknown>;
+  const pinRecord = (v: unknown, keyOk: (k: string) => boolean, valOk: (v: string) => boolean) =>
+    Object.fromEntries(
+      Object.entries(v && typeof v === "object" ? (v as Record<string, unknown>) : {}).filter(
+        (e): e is [string, string] => typeof e[1] === "string" && keyOk(e[0]) && valOk(e[1]),
+      ),
+    );
   return {
     households,
+    pins: {
+      adults: pinRecord(pinsIn.adults, (k) => adultIds.has(k), (v) => adultIds.has(v)),
+      kids: pinRecord(pinsIn.kids, (k) => householdIds.has(k), (v) => kidIds.has(v)),
+    },
     rules: {
       ownKids: r.ownKids !== false,
       noRepeat: r.noRepeat !== false,

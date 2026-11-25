@@ -20,9 +20,19 @@ export type Rules = {
   grandparentsSkipKids: boolean;
 };
 
+/**
+ * Fixed matches the admin forces into the draw. Everything else stays random.
+ * adults: giverId -> recipientId. kids: householdId -> kidId (both adults share the kid).
+ */
+export type Pins = {
+  adults: Record<string, string>;
+  kids: Record<string, string>;
+};
+
 export type Config = {
   households: Household[];
   rules: Rules;
+  pins?: Pins;
   budgets: { adult: string; kid: string };
   exchangeDate: string;
 };
