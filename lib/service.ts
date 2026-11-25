@@ -228,8 +228,27 @@ export type LinkRow = {
 
 export type FullListRow = { giver: string; household: string; buysFor: string; kids: string[] };
 
+/**
+ * Where private links should point. Vercel's per-deployment and branch URLs sit behind
+ * Vercel Authentication, so links must use the public production domain, never the
+ * address the admin happens to be browsing. PUBLIC_BASE_URL overrides (e.g. a custom domain).
+ */
+export function publicBaseUrl(): string | null {
+  const explicit = process.env.PUBLIC_BASE_URL?.trim();
+  const host = explicit || process.env.VERCEL_PROJECT_PRODUCTION_URL?.trim();
+  if (!host) return null;
+  try {
+    const u = new URL(/^https?:\/\//i.test(host) ? host : `https://${host}`);
+    return u.origin;
+  } catch {
+    return null;
+  }
+}
+
 export type LinksView = {
   year: number;
+  /** Base for private links (production domain). Null in local dev: use the browser's origin. */
+  baseUrl: string | null;
   drawn: boolean;
   drawnAt: string | null;
   sealBroken: boolean;
@@ -245,7 +264,7 @@ export type LinksView = {
 export async function links(store: Store, year: number): Promise<LinksView> {
   const meta = await store.get<DrawMeta>(keys.meta(year));
   if (!meta) {
-    return { year, drawn: false, drawnAt: null, sealBroken: false, sealBrokenAt: null, openedCount: 0, canRedraw: false, rows: [] };
+    return { year, baseUrl: publicBaseUrl(), drawn: false, drawnAt: null, sealBroken: false, sealBrokenAt: null, openedCount: 0, canRedraw: false, rows: [] };
   }
   const config = await getConfig(store, year);
   const { adults } = people(config);
@@ -268,6 +287,7 @@ export async function links(store: Store, year: number): Promise<LinksView> {
   const openedCount = rows.filter((r) => r.openedAt).length;
   const view: LinksView = {
     year,
+    baseUrl: publicBaseUrl(),
     drawn: true,
     drawnAt: meta.drawnAt,
     sealBroken: meta.sealBroken,

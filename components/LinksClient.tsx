@@ -65,7 +65,8 @@ export default function LinksClient() {
     router.push("/admin");
   }
 
-  const origin = typeof window === "undefined" ? "" : window.location.origin;
+  const origin = view?.baseUrl ?? (typeof window === "undefined" ? "" : window.location.origin);
+  const linkHost = origin.replace(/^https?:\/\//, "");
   const total = view?.rows.length ?? 0;
   const pct = total ? Math.round(((view?.openedCount ?? 0) / total) * 100) : 0;
 
@@ -117,7 +118,9 @@ export default function LinksClient() {
             <section className={`${card} flex flex-col px-4 pb-4 pt-2 sm:px-6`}>
               <div className="flex flex-wrap items-baseline justify-between gap-3 pb-3 pt-4">
                 <h2 className="font-display text-[22px] font-medium text-evergreen">Private links</h2>
-                <p className="text-sm text-muted">Send each one on its own, never in a group thread.</p>
+                <p className="text-sm text-muted">
+                  Links use <span className="font-mono text-ink">{linkHost}</span>. Send each one on its own, never in a group thread.
+                </p>
               </div>
               <div className="overflow-x-auto">
                 <table className="w-full min-w-[820px] border-collapse text-[15px]">

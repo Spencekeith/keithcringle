@@ -10,7 +10,7 @@ import { PUT as kidnotesPUT } from "@/app/api/r/[token]/kidnotes/[kidId]/route";
 import { PUT as wishlistPUT } from "@/app/api/r/[token]/wishlist/route";
 import { SESSION_COOKIE, createSession } from "@/lib/auth";
 import { defaultConfig } from "@/lib/defaults";
-import { keys } from "@/lib/service";
+import { keys, publicBaseUrl } from "@/lib/service";
 import { MemoryStore, setStoreForTests } from "@/lib/store";
 import type { Assignment, TokenRow } from "@/lib/types";
 
@@ -221,5 +221,41 @@ describe("config", () => {
     expect(c.households.flatMap((h) => h.adults)).toHaveLength(10);
     expect(c.households.flatMap((h) => h.kids).filter((k) => !k.optedOut)).toHaveLength(5);
     expect(c.rules).toEqual({ ownKids: true, noRepeat: true, grandparentsSkipKids: false });
+  });
+});
+
+describe("link base URL", () => {
+  const saved = { ...process.env };
+  const reset = () => {
+    for (const k of ["PUBLIC_BASE_URL", "VERCEL_PROJECT_PRODUCTION_URL"]) {
+      if (saved[k] === undefined) delete process.env[k];
+      else process.env[k] = saved[k];
+    }
+  };
+
+  it("uses Vercel's production domain, not a protected deployment URL", async () => {
+    process.env.VERCEL_PROJECT_PRODUCTION_URL = "keithcringle.vercel.app";
+    delete process.env.PUBLIC_BASE_URL;
+    try {
+      expect(publicBaseUrl()).toBe("https://keithcringle.vercel.app");
+      await drawNow();
+      const view = await (await linksGET(await adminReq("/api/admin/links"))).json();
+      expect(view.baseUrl).toBe("https://keithcringle.vercel.app");
+    } finally {
+      reset();
+    }
+  });
+
+  it("PUBLIC_BASE_URL overrides it, and local dev gets null", () => {
+    try {
+      process.env.VERCEL_PROJECT_PRODUCTION_URL = "keithcringle.vercel.app";
+      process.env.PUBLIC_BASE_URL = "https://draw.example.com/";
+      expect(publicBaseUrl()).toBe("https://draw.example.com");
+      delete process.env.PUBLIC_BASE_URL;
+      delete process.env.VERCEL_PROJECT_PRODUCTION_URL;
+      expect(publicBaseUrl()).toBeNull();
+    } finally {
+      reset();
+    }
   });
 });
